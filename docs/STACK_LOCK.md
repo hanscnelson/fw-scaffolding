@@ -15,6 +15,18 @@ Parity target: live Path B on the Grok Bot box — `/workspace/ingest/batch52/ru
 
 Verify: `fw --version` → 0.9.3; `fw robot triage`; `fw models --json`.
 
+### Post-fw diarization step (`longdiar`, fw-scaffolding) — runs after `fw`, never inside it
+
+| Field | Value |
+|---|---|
+| Tool | `python -m longdiar <job_dir>` from `hanscnelson/fw-scaffolding` (`longdiar/`), version 0.1.0 |
+| Calls into fw | `fw sortformer-diarize --input <chunk.wav>` (same pinned 0.9.3 binary and verified Sortformer cache; one ~10 min chunk at a time) |
+| Speaker-embedding model | 3D-Speaker CAM++ `3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx`, Apache-2.0, from `k2-fsa/sherpa-onnx` release `speaker-recongition-models` (GitHub, no HF token), sha256 `357a834f702b80161e5b981182c038e18553c1f2ca752ed6cec2052365d4129b`, 29.6 MB, at `/models/longdiar/` |
+| Python | CPython 3.12 venv; `numpy==2.5.3`, `onnxruntime==1.30.0` (CPU EP). Runtime SIMD dispatch: AVX on the E5-2670, no AVX2/FMA needed |
+| Not used | pyannote (code or weights), HF tokens, faster-whisper, GPUs |
+
+Verify: `python -m longdiar --help`; `sha256sum /models/longdiar/*.onnx`.
+
 ## Fetch
 
 1. `yt-dlp` bestaudio (m4a/webm/…)
@@ -59,6 +71,7 @@ taskset -c 0-7 fw transcribe \
 ## Diarization / naming
 
 - Sortformer is **4-lane capped**. More speakers → QA flag in `quality.md`, do **not** hard-reject before ASR
+- After `fw`, run `longdiar` (auto mode). It replaces `result.diarization` in a copy (`fw.longdiar.json`) when fw's diarization is degraded or capped: audio > 2 h, `fallback_status != not_needed` / acoustic engine, or all 4 lanes used. `status: warning` in `longdiar.json` → QA flag, keep fw's output, never fail the job. An fw acoustic fallback is always surfaced as a flag, never silent
 - `speaker_map.json` **flat** shape only: `{"SPEAKER_00":"Alex","SPEAKER_01":"Hans C Nelson",…}` (cluster id → display_name string). No nested objects.
 - Naming **prefers real names** from job/show priors + channel metadata (e.g. Hans C Nelson / Alex). Fall back to `Host` / leave `SPEAKER_XX` **only** when priors are missing. Do **not** invent surnames from thin air; **do** use explicit priors when provided.
 - Prior sources (merged by `resolve_show_priors`):
