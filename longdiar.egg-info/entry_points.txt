@@ -1,2 +1,0 @@
-[console_scripts]
-longdiar = longdiar.__main__:main
