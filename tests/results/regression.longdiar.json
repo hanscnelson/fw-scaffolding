@@ -1,0 +1,184 @@
+{
+ "step": "longdiar",
+ "version": "0.1.0",
+ "status": "ok",
+ "reason": "fw fallback_status=speaker_count_unresolved (implementation=native-sortformer-v1)",
+ "flags": [
+  "fw:fw_diarization_fallback:speaker_count_unresolved"
+ ],
+ "fw_json": "fw.json",
+ "audio": "audio.wav",
+ "mode": "auto",
+ "fw_diarization_flags": [
+  "fw_diarization_fallback:speaker_count_unresolved"
+ ],
+ "duration_s": 2439.869,
+ "speakers": [
+  {
+   "speaker_ref": "SPEAKER_00",
+   "talk_s": 223.1,
+   "first_s": 0.7,
+   "last_s": 2389.7,
+   "chunks": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+   ],
+   "units": 9,
+   "channel": "studio",
+   "linking_confidence": "normal"
+  },
+  {
+   "speaker_ref": "SPEAKER_01",
+   "talk_s": 1835.3,
+   "first_s": 5.2,
+   "last_s": 2438.5,
+   "chunks": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+   ],
+   "units": 8,
+   "channel": "studio",
+   "linking_confidence": "normal"
+  }
+ ],
+ "call_segments": [],
+ "links": {
+  "considered": 13,
+  "accepted": 13,
+  "vetoed": 0,
+  "conflicts": 0,
+  "boundaries": 7,
+  "boundaries_with_link": 7
+ },
+ "chunks": [
+  {
+   "start_s": 0.0,
+   "end_s": 182.25,
+   "active_lanes": 3,
+   "capacity": "four_lane_capped_output_true_speaker_count_unknown",
+   "units": 2,
+   "split_lanes": 0,
+   "merged_duplicate_lanes": 1,
+   "sortformer_s": 12.96,
+   "resplit_of": 0,
+   "i": 0
+  },
+  {
+   "start_s": 155.65,
+   "end_s": 337.9,
+   "active_lanes": 3,
+   "capacity": "four_lane_capped_output_true_speaker_count_unknown",
+   "units": 3,
+   "split_lanes": 0,
+   "merged_duplicate_lanes": 0,
+   "sortformer_s": 13.2,
+   "resplit_of": 0,
+   "i": 1
+  },
+  {
+   "start_s": 304.55,
+   "end_s": 485.95,
+   "active_lanes": 2,
+   "capacity": "four_lane_capped_output_true_speaker_count_unknown",
+   "units": 2,
+   "split_lanes": 0,
+   "merged_duplicate_lanes": 0,
+   "sortformer_s": 13.0,
+   "resplit_of": 0,
+   "i": 2
+  },
+  {
+   "start_s": 460.65,
+   "end_s": 604.75,
+   "active_lanes": 2,
+   "capacity": "four_lane_capped_output_true_speaker_count_unknown",
+   "units": 2,
+   "split_lanes": 0,
+   "merged_duplicate_lanes": 0,
+   "sortformer_s": 11.02,
+   "resplit_of": 0,
+   "i": 3
+  },
+  {
+   "start_s": 543.95,
+   "end_s": 1145.1,
+   "active_lanes": 2,
+   "capacity": "four_lane_capped_output_true_speaker_count_unknown",
+   "units": 2,
+   "split_lanes": 0,
+   "merged_duplicate_lanes": 0,
+   "sortformer_s": 39.25,
+   "i": 4
+  },
+  {
+   "start_s": 1085.45,
+   "end_s": 1685.3,
+   "active_lanes": 2,
+   "capacity": "four_lane_capped_output_true_speaker_count_unknown",
+   "units": 2,
+   "split_lanes": 0,
+   "merged_duplicate_lanes": 0,
+   "sortformer_s": 39.35,
+   "i": 5
+  },
+  {
+   "start_s": 1625.55,
+   "end_s": 2231.9,
+   "active_lanes": 2,
+   "capacity": "four_lane_capped_output_true_speaker_count_unknown",
+   "units": 2,
+   "split_lanes": 0,
+   "merged_duplicate_lanes": 0,
+   "sortformer_s": 39.44,
+   "i": 6
+  },
+  {
+   "start_s": 2174.35,
+   "end_s": 2439.869,
+   "active_lanes": 2,
+   "capacity": "four_lane_capped_output_true_speaker_count_unknown",
+   "units": 2,
+   "split_lanes": 0,
+   "merged_duplicate_lanes": 0,
+   "sortformer_s": 18.52,
+   "i": 7
+  }
+ ],
+ "cuts": [
+  0.0,
+  170.25,
+  320.375,
+  472.9,
+  577.35,
+  1116.025,
+  1650.175,
+  2198.525,
+  2439.869
+ ],
+ "timings": {
+  "sortformer_s": 226.5,
+  "embed_s": 32.81,
+  "link_s": 0.001,
+  "refined_turns": 0,
+  "total_s": 259.99
+ },
+ "output": "fw.longdiar.json",
+ "speaker_count": 2,
+ "wall_s": 260.21,
+ "peak_rss": {
+  "step_mb": 277.8,
+  "largest_child_mb": 1229.2
+ }
+}

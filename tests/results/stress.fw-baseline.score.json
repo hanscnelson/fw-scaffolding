@@ -1,0 +1,27 @@
+{
+ "label": "fw-0.9.3-acoustic-fallback (ref-less turns dropped to let fuse run)",
+ "true_speakers": 17,
+ "hyp_speakers": 1,
+ "der_1to1": 0.7967,
+ "der_merge_ok": 0.7967,
+ "miss": 0.0328,
+ "false_alarm": 0.0371,
+ "confusion_1to1": 0.7268,
+ "confusion_merge_ok": 0.7268,
+ "split_true_speakers": {},
+ "merged_labels": {
+  "SPEAKER_00": [
+   "5639 (host_2)",
+   "7127 (host_1)"
+  ]
+ },
+ "chunk_consistency": {
+  "speakers_in_2plus_chunks": 17,
+  "same_label_in_every_chunk": 17,
+  "adjacent_chunk_pairs_same_label": "184/184",
+  "inconsistent": {}
+ },
+ "word_speaker_error_1to1": 0.7251,
+ "word_speaker_error_merge_ok": 0.7251,
+ "fused_words_scored": 22957
+}

@@ -1,0 +1,27 @@
+{
+ "profile": "regression",
+ "seed": 7,
+ "duration_s": 2439.87,
+ "roles": {
+  "7127": "host",
+  "5639": "guest"
+ },
+ "blocks": [
+  {
+   "name": "interview",
+   "kind": "interview",
+   "length_s": 2400,
+   "cast": [
+    "7127",
+    "5639"
+   ],
+   "start_s": 0.0,
+   "end_s": 2438.88
+  }
+ ],
+ "turns": 234,
+ "talk_s": {
+  "7127": 283.6,
+  "5639": 2020.5
+ }
+}

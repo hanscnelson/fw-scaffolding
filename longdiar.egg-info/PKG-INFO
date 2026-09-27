@@ -1,0 +1,7 @@
+Metadata-Version: 2.4
+Name: longdiar
+Version: 0.1.0
+Summary: Post-FrankenWhisper diarization for long (>2 h) / many-speaker (>4) audio
+Requires-Python: >=3.10
+Requires-Dist: numpy==2.5.3
+Requires-Dist: onnxruntime==1.30.0

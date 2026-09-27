@@ -1,0 +1,14 @@
+README.md
+pyproject.toml
+longdiar/__init__.py
+longdiar/__main__.py
+longdiar/chunked.py
+longdiar/embed.py
+longdiar/step.py
+longdiar.egg-info/PKG-INFO
+longdiar.egg-info/SOURCES.txt
+longdiar.egg-info/dependency_links.txt
+longdiar.egg-info/entry_points.txt
+longdiar.egg-info/requires.txt
+longdiar.egg-info/top_level.txt
+tests/test_step.py
