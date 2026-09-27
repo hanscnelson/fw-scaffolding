@@ -1,0 +1,82 @@
+{
+ "label": "",
+ "true_speakers": 17,
+ "hyp_speakers": 20,
+ "der_1to1": 0.1587,
+ "der_merge_ok": 0.1496,
+ "miss": 0.1397,
+ "false_alarm": 0.0008,
+ "confusion_1to1": 0.0182,
+ "confusion_merge_ok": 0.0091,
+ "split_true_speakers": {
+  "1284 (call_moderator)": [
+   "SPEAKER_40",
+   "SPEAKER_44"
+  ]
+ },
+ "merged_labels": {},
+ "chunk_consistency": {
+  "speakers_in_2plus_chunks": 17,
+  "same_label_in_every_chunk": 15,
+  "adjacent_chunk_pairs_same_label": "182/184",
+  "inconsistent": {
+   "7127 (host_1)": {
+    "0": "SPEAKER_00",
+    "1": "SPEAKER_00",
+    "2": "SPEAKER_00",
+    "3": "SPEAKER_00",
+    "4": "SPEAKER_00",
+    "5": "SPEAKER_00",
+    "7": "SPEAKER_00",
+    "8": "SPEAKER_00",
+    "9": "SPEAKER_00",
+    "10": "SPEAKER_00",
+    "11": "SPEAKER_00",
+    "12": "SPEAKER_00",
+    "13": "SPEAKER_00",
+    "14": "SPEAKER_00",
+    "15": "SPEAKER_00",
+    "16": "SPEAKER_00",
+    "17": "SPEAKER_00",
+    "18": "SPEAKER_00",
+    "19": "SPEAKER_00",
+    "20": "SPEAKER_00",
+    "22": "SPEAKER_44",
+    "23": "SPEAKER_00",
+    "24": "SPEAKER_00",
+    "25": "SPEAKER_00",
+    "26": "SPEAKER_00",
+    "27": "SPEAKER_00",
+    "28": "SPEAKER_00",
+    "29": "SPEAKER_00",
+    "30": "SPEAKER_00",
+    "31": "SPEAKER_00",
+    "32": "SPEAKER_00",
+    "33": "SPEAKER_00",
+    "34": "SPEAKER_00",
+    "35": "SPEAKER_00",
+    "36": "SPEAKER_00",
+    "39": "SPEAKER_10",
+    "41": "SPEAKER_00",
+    "42": "SPEAKER_00",
+    "43": "SPEAKER_00",
+    "44": "SPEAKER_00",
+    "45": "SPEAKER_00",
+    "46": "SPEAKER_00",
+    "47": "SPEAKER_00",
+    "48": "SPEAKER_00",
+    "49": "SPEAKER_00"
+   },
+   "1284 (call_moderator)": {
+    "20": "SPEAKER_40",
+    "22": "SPEAKER_40",
+    "23": "SPEAKER_40",
+    "24": "SPEAKER_40",
+    "25": "SPEAKER_44"
+   }
+  }
+ },
+ "word_speaker_error_1to1": 0.0259,
+ "word_speaker_error_merge_ok": 0.0143,
+ "fused_words_scored": 22957
+}

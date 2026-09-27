@@ -1,0 +1,3 @@
+# test harness only (synthetic audio, scoring)
+scipy==1.18.1
+soundfile==0.14.0

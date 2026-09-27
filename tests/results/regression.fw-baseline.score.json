@@ -1,0 +1,38 @@
+{
+ "label": "fw-0.9.3-sortformer",
+ "true_speakers": 2,
+ "hyp_speakers": 3,
+ "der_1to1": 0.15,
+ "der_merge_ok": 0.1104,
+ "miss": 0.1101,
+ "false_alarm": 0.0002,
+ "confusion_1to1": 0.0396,
+ "confusion_merge_ok": 0.0,
+ "split_true_speakers": {
+  "7127 (host)": [
+   "SPEAKER_00",
+   "SPEAKER_02"
+  ]
+ },
+ "merged_labels": {},
+ "chunk_consistency": {
+  "speakers_in_2plus_chunks": 2,
+  "same_label_in_every_chunk": 1,
+  "adjacent_chunk_pairs_same_label": "12/14",
+  "inconsistent": {
+   "7127 (host)": {
+    "0": "SPEAKER_02",
+    "1": "SPEAKER_00",
+    "2": "SPEAKER_00",
+    "3": "SPEAKER_00",
+    "4": "SPEAKER_00",
+    "5": "SPEAKER_00",
+    "6": "SPEAKER_02",
+    "7": "SPEAKER_02"
+   }
+  }
+ },
+ "word_speaker_error_1to1": 0.0421,
+ "word_speaker_error_merge_ok": 0.0003,
+ "fused_words_scored": 6586
+}
