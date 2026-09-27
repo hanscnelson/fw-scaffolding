@@ -56,10 +56,16 @@ def main():
     ap.add_argument("hyp")
     ap.add_argument("--cuts", help="longdiar.json whose cuts define chunks")
     ap.add_argument("--fused", help="fuse_diarization.py --json output built from HYP")
+    ap.add_argument("--words", help="the fw.json the fused output came from (word timings)")
     ap.add_argument("--manifest", help="synthetic manifest (roles, blocks)")
     ap.add_argument("--label", default="")
+    ap.add_argument("--span", help="score only START:END seconds")
     a = ap.parse_args()
     T, H = read_rttm(a.truth), read_hyp(a.hyp)
+    if a.span:
+        lo, hi = map(float, a.span.split(":"))
+        clip = lambda X: [(max(x, lo), min(y, hi), s) for x, y, s in X if y > lo and x < hi]
+        T, H = clip(T), clip(H)
     n = int(max(b for _, b, _ in T + H) / RES) + 1
     tl, TM = frames(T, n)
     hl, HM = frames(H, n)
@@ -124,22 +130,30 @@ def main():
                           if not ok})
     if a.fused:
         F = json.load(open(a.fused))
+        res = json.load(open(a.words))["result"]
+        segs = [s for s in res["segments"] if s.get("text", "").strip()]
+        starts = np.array([s["start_sec"] for s in segs])
         words = err = 0
         lab_true = defaultdict(lambda: defaultdict(float))
         rows = []
         for t in F:
-            lo, hi = int(t["start"] / RES), int(t["end"] / RES) + 1
-            cover = TM[:, lo:hi].sum(1)
-            if cover.max() == 0:
-                continue
-            nw = len(t["text"].split())
-            truth = tl[int(cover.argmax())]
-            rows.append((t["speaker"], truth, nw))
-            lab_true[t["speaker"]][truth] += nw
+            i = int(np.argmin(np.abs(starts - t["start"])))
+            for s in segs[i: i + len(t["text"].split())]:
+                k = int((s["start_sec"] + s["end_sec"]) / 2 / RES)
+                cover = TM[:, max(0, k - 25): k + 25].sum(1)
+                if cover.max() == 0:
+                    continue
+                truth = tl[int(cover.argmax())]
+                rows.append((t["speaker"], truth, 1))
+                lab_true[t["speaker"]][truth] += 1
         m = {h: max(v, key=v.get) for h, v in lab_true.items()}
+        m1 = {hl[j]: tl[i] for i, j in zip(r, c)}
+        err1 = 0
         for h, truth, nw in rows:
             words += nw
             err += nw * (m[h] != truth)
+            err1 += nw * (m1.get(h) != truth)
+        out["word_speaker_error_1to1"] = round(err1 / max(1, words), 4)
         out["word_speaker_error_merge_ok"] = round(err / max(1, words), 4)
         out["fused_words_scored"] = words
     print(json.dumps(out, indent=1))

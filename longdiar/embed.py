@@ -94,15 +94,18 @@ class Embedder:
 
     def embed(self, x: np.ndarray) -> np.ndarray:
         """One L2-normalised embedding for a float waveform (>= ~0.5 s)."""
+        return self.embed_hb(x)[0]
+
+    def embed_hb(self, x: np.ndarray):
+        """(embedding, high-band energy share) from one fbank pass."""
         f = fbank(x)
+        hb = _highband(f)
         f -= f.mean(axis=0, keepdims=True)
         e = self.sess.run(None, {self.inp: f[None]})[0][0]
-        return e / (np.linalg.norm(e) + 1e-9)
+        return e / (np.linalg.norm(e) + 1e-9), hb
 
 
-def highband_ratio(x: np.ndarray, cutoff_hz: float = 3800.0) -> float:
-    """Share of spectral energy above `cutoff_hz`; ~0 for phone/webcast-band audio."""
-    f = fbank(x)
+def _highband(f: np.ndarray, cutoff_hz: float = 3800.0) -> float:
     if not len(f):
         return float("nan")
     p = np.exp(f)
@@ -111,3 +114,8 @@ def highband_ratio(x: np.ndarray, cutoff_hz: float = 3800.0) -> float:
                                          NMEL + 2)[1:-1] / 1127.0) - 1)
     hi = mel_hz >= cutoff_hz
     return float(p[:, hi].sum() / (p.sum() + 1e-9))
+
+
+def highband_ratio(x: np.ndarray, cutoff_hz: float = 3800.0) -> float:
+    """Share of spectral energy above `cutoff_hz`; ~0 for phone/webcast-band audio."""
+    return _highband(fbank(x), cutoff_hz)

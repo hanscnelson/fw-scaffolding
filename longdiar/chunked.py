@@ -18,7 +18,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .embed import SR, Embedder, highband_ratio
+from .embed import SR, Embedder
 
 IMPLEMENTATION = "longdiar-chunked-sortformer-v1"
 
@@ -33,17 +33,26 @@ class Params:
     max_pieces_per_lane: int = 80
     link_min_overlap_s: float = 2.0  # must-link: shared activity in the chunk overlap
     link_min_iou: float = 0.4
-    link_min_cos: float = 0.2       # must-link veto if embeddings clearly disagree
-    merge_cos: float = 0.55         # global clustering threshold (wideband)
-    merge_cos_narrow: float = 0.55  # global clustering threshold (phone/webcast band)
+    link_min_cos: float = 0.6       # must-link veto if embeddings disagree
+    merge_cos: float = 0.55         # global clustering threshold (studio / wideband)
+    merge_cos_narrow: float = 0.75  # phone-band voices sit closer together in embedding space
     split_cos: float = 0.45         # lane holds two voices if its sub-centroids are below this
-    split_min_s: float = 8.0        # ...and each side has at least this much clean speech
+    split_cos_narrow: float = 0.72
+    split_min_s: float = 6.0        # ...and each side has at least this much clean speech
+    channel_split_min_s: float = 3.0  # lane holding both studio and phone-band speech is split
     dup_cos: float = 0.70           # two lanes of one chunk above this (and not co-talking) are one voice
-    narrowband_ratio: float = 0.02  # energy share above 3.8 kHz below this => phone band
+    dup_cos_narrow: float = 0.85
+    narrowband_ratio: float = 0.05  # energy share above 3.8 kHz below this => phone band
     call_label_base: int = 40       # phone-band speakers are numbered from SPEAKER_40
     fw_bin: str = "fw"
     threads: int = 0
     chunk_timeout_s: float = 3600.0
+    tiny_s: float = 15.0            # clusters with less talk than this may be absorbed...
+    tiny_absorb_cos: float = 0.55   # ...into an established speaker they match this well
+    refine_margin: float = 0.10     # turn moves to another speaker if it matches it this much better
+    refine_min_s: float = 1.5       # ...judged on at least this much clean speech in the turn
+    resplit_s: float = 180.0        # saturated chunks (>4 voices) are re-run in windows this long
+    resplit_overlap_s: float = 30.0
     cache_dir: str | None = None    # per-chunk Sortformer results, reused on re-runs
 
 
@@ -51,7 +60,7 @@ class Params:
 
 class Wav:
     def __init__(self, path: Path):
-        self.path = path
+        self.path = Path(path)
         with wave.open(str(path), "rb") as w:
             if (w.getnchannels(), w.getsampwidth(), w.getframerate()) != (1, 2, SR):
                 raise ValueError(f"{path}: need 16 kHz s16le mono, got "
@@ -93,18 +102,21 @@ def quiet_point(wav: Wav, t: float, radius: float) -> float:
 
 
 def plan_chunks(wav: Wav, p: Params):
-    """[(start, end)] windows with ~overlap_s overlap, cut at quiet points."""
-    d = wav.duration
-    if d <= p.chunk_s * 1.25:
-        return [(0.0, d)]
-    out, a = [], 0.0
+    return plan_span(wav, 0.0, wav.duration, p.chunk_s, p.overlap_s, p.snap_s)
+
+
+def plan_span(wav: Wav, a: float, d: float, chunk_s: float, overlap_s: float, snap_s: float):
+    """[(start, end)] windows over [a, d] with ~overlap_s overlap, cut at quiet points."""
+    if d - a <= chunk_s * 1.25:
+        return [(a, d)]
+    out = []
     while True:
-        if d - a <= p.chunk_s * 1.25:
+        if d - a <= chunk_s * 1.25:
             out.append((a, d))
             return out
-        z = quiet_point(wav, a + p.chunk_s, p.snap_s)
+        z = quiet_point(wav, a + chunk_s, snap_s)
         out.append((a, z))
-        a = quiet_point(wav, z - p.overlap_s, p.snap_s)
+        a = quiet_point(wav, z - overlap_s, snap_s)
 
 
 # ---------------------------------------------------------------- sortformer per chunk
@@ -158,7 +170,7 @@ class Unit:
     chunk: int
     lane: str
     turns: list                              # [(start, end)]
-    pieces: list = field(default_factory=list)   # [(start, end, emb)]
+    pieces: list = field(default_factory=list)   # [(start, end, emb, highband)]
     hb: float = float("nan")
     centroid: np.ndarray | None = None
     label: int = -1
@@ -170,13 +182,23 @@ class Unit:
 
     @property
     def clean(self):
-        return sum(b - a for a, b, _ in self.pieces)
+        return sum(b - a for a, b, *_ in self.pieces)
 
     def update(self):
         if self.pieces:
-            w = np.array([b - a for a, b, _ in self.pieces])
-            c = (np.stack([e for _, _, e in self.pieces]) * w[:, None]).sum(0)
+            w = np.array([b - a for a, b, *_ in self.pieces])
+            c = (np.stack([e for _, _, e, *_ in self.pieces]) * w[:, None]).sum(0)
             self.centroid = c / (np.linalg.norm(c) + 1e-9)
+            self.hb = weighted_median([pc[3] for pc in self.pieces], w)
+
+    def narrow(self, p):
+        return bool(self.hb < p.narrowband_ratio)
+
+
+def weighted_median(v, w):
+    o = np.argsort(v)
+    cw = np.cumsum(np.asarray(w)[o])
+    return float(np.asarray(v)[o][np.searchsorted(cw, cw[-1] / 2)])
 
 
 def subtract(iv, others):
@@ -248,9 +270,12 @@ def dedupe_lanes(units, p: Params):
                 A, B = units[i], units[j]
                 if A.centroid is None or B.centroid is None:
                     continue
+                if A.narrow(p) != B.narrow(p):
+                    continue
                 s = float(A.centroid @ B.centroid)
+                thr = p.dup_cos_narrow if A.narrow(p) else p.dup_cos
                 co = inter(A.turns, B.turns)
-                if s >= p.dup_cos and co < 0.1 * min(A.talk, B.talk) and (not best or s > best[0]):
+                if s >= thr and co < 0.1 * min(A.talk, B.talk) and (not best or s > best[0]):
                     best = (s, i, j)
         if not best:
             return units
@@ -263,36 +288,52 @@ def dedupe_lanes(units, p: Params):
         units.remove(drop)
 
 
-def maybe_split(u: Unit, p: Params, depth=0):
-    """Split a lane that carries two voices (more than 4 speakers inside one chunk)."""
-    if depth >= 2 or len(u.pieces) < 6:
-        return [u]
-    E = np.stack([e for _, _, e in u.pieces])
-    w = np.array([b - a for a, b, _ in u.pieces])
-    lab, C = two_way_split(E, w)
-    dur = [w[lab == k].sum() for k in (0, 1)]
-    if float(C[0] @ C[1]) >= p.split_cos or min(dur) < p.split_min_s:
-        return [u]
+def split_by(u: Unit, lab, tag):
     halves = []
     for k in (0, 1):
-        v = Unit(u.chunk, f"{u.lane}{'ab'[k]}", [], [pc for pc, l in zip(u.pieces, lab) if l == k],
-                 u.hb)
+        v = Unit(u.chunk, f"{u.lane}{tag[k]}", [], [pc for pc, l in zip(u.pieces, lab) if l == k])
         v.update()
         halves.append(v)
     # hand each turn to the half whose pieces it holds; piece-less turns go to the
     # half with the nearest piece in time
     for a, b in u.turns:
-        votes = [sum(min(b, pb) - max(a, pa) for pa, pb, _ in h.pieces if pb > a and pa < b)
+        votes = [sum(min(b, pb) - max(a, pa) for pa, pb, *_ in h.pieces if pb > a and pa < b)
                  for h in halves]
         if max(votes) > 0:
             k = int(np.argmax(votes))
         else:
             mid = (a + b) / 2
-            k = int(np.argmin([min(abs((pa + pb) / 2 - mid) for pa, pb, _ in h.pieces)
+            k = int(np.argmin([min(abs((pa + pb) / 2 - mid) for pa, pb, *_ in h.pieces)
                                for h in halves]))
         halves[k].turns.append((a, b))
+    return halves
+
+
+def channel_split(u: Unit, p: Params):
+    """A lane can span a studio -> phone-band switch (e.g. a chunk that straddles the start of
+    an earnings call, or a host talking over the call): split it by channel first."""
+    if len(u.pieces) < 2:
+        return [u]
+    lab = np.array([int(pc[3] < p.narrowband_ratio) for pc in u.pieces])
+    w = np.array([b - a for a, b, *_ in u.pieces])
+    if min(w[lab == 0].sum(), w[lab == 1].sum()) < p.channel_split_min_s:
+        return [u]
+    return split_by(u, lab, ("s", "p"))
+
+
+def maybe_split(u: Unit, p: Params, depth=0):
+    """Split a lane that carries two voices (more than 4 speakers inside one chunk)."""
+    if depth >= 2 or len(u.pieces) < 6:
+        return [u]
+    E = np.stack([e for _, _, e, *_ in u.pieces])
+    w = np.array([b - a for a, b, *_ in u.pieces])
+    lab, C = two_way_split(E, w)
+    dur = [w[lab == k].sum() for k in (0, 1)]
+    thr = p.split_cos_narrow if u.narrow(p) else p.split_cos
+    if float(C[0] @ C[1]) >= thr or min(dur) < p.split_min_s:
+        return [u]
     out = []
-    for h in halves:
+    for h in split_by(u, lab, "ab"):
         out += maybe_split(h, p, depth + 1)
     return out
 
@@ -343,7 +384,8 @@ def must_links(units, chunks, p: Params):
             if i in used_l or j in used_r:
                 continue
             ok = ov >= p.link_min_overlap_s and iou >= p.link_min_iou
-            vetoed = ok and cos is not None and cos < p.link_min_cos
+            vetoed = ok and ((cos is not None and cos < p.link_min_cos)
+                             or units[i].narrow(p) != units[j].narrow(p))
             links.append(dict(chunk=k, a=units[i].lane, b=units[j].lane, overlap_s=round(ov, 2),
                               iou=round(iou, 3), cos=None if cos is None else round(cos, 3),
                               accepted=ok and not vetoed, vetoed=vetoed))
@@ -358,7 +400,7 @@ def cluster(units, links, p: Params):
     n = len(units)
     dsu = DSU(n)
     chunks_of = [{units[i].chunk} for i in range(n)]
-    narrow = [bool(u.hb < p.narrowband_ratio) for u in units]
+    narrow = [u.narrow(p) for u in units]
 
     def union(i, j):
         ri, rj = dsu.find(i), dsu.find(j)
@@ -386,7 +428,8 @@ def cluster(units, links, p: Params):
     for i in range(n):
         groups.setdefault(dsu.find(i), []).append(i)
     cl = [dict(members=m, chunks=set().union(*(chunks_of[dsu.find(x)] for x in m)),
-               narrow=np.mean([narrow[x] for x in m]) >= 0.5, c=centroid(m)) for m in groups.values()]
+               narrow=sum(units[x].talk * narrow[x] for x in m) >= 0.5 * sum(units[x].talk for x in m),
+               c=centroid(m)) for m in groups.values()]
     while True:
         best = None
         for x in range(len(cl)):
@@ -407,7 +450,50 @@ def cluster(units, links, p: Params):
         A["members"] += B["members"]
         A["chunks"] |= B["chunks"]
         A["c"] = centroid(A["members"])
-    return cl
+
+    # a tiny cluster (a few seconds of a short-lived lane) whose voice clearly matches an
+    # established speaker is folded into it; genuine low-talk speakers stay separate
+    talk = lambda c: sum(units[m].talk for m in c["members"])
+    big = [c for c in cl if talk(c) >= p.tiny_s and c["c"] is not None]
+    keep = []
+    for c in cl:
+        if talk(c) < p.tiny_s and c["c"] is not None and big:
+            s, tgt = max(((float(c["c"] @ b["c"]), b) for b in big), key=lambda x: x[0])
+            if s >= p.tiny_absorb_cos:
+                tgt["members"] += c["members"]
+                tgt["chunks"] |= c["chunks"]
+                tgt["absorbed"] = tgt.get("absorbed", 0) + 1
+                continue
+        keep.append(c)
+    return keep
+
+
+def refine_turns(units, cl, p: Params):
+    """Move a Sortformer turn to another global speaker when the turn's own embeddings
+    clearly match that speaker better than its lane's (lanes can mix voices when a chunk
+    holds more than 4 speakers). Stays within the turn's channel (studio / phone band)."""
+    cents = [(c["ref"], c["c"], c["narrow"]) for c in cl if c["c"] is not None]
+    out = {}
+    for ui, u in enumerate(units):
+        if not u.pieces:
+            continue
+        P = np.array([(a, b) for a, b, *_ in u.pieces])
+        E = np.stack([e for _, _, e, *_ in u.pieces])
+        for ti, (a, b) in enumerate(u.turns):
+            idx = np.where((P[:, 0] < b) & (P[:, 1] > a))[0]
+            if not len(idx) or (P[idx, 1] - P[idx, 0]).sum() < p.refine_min_s:
+                continue
+            narrow = bool(np.median([u.pieces[i][3] for i in idx]) < p.narrowband_ratio)
+            e = E[idx].mean(0)
+            e /= np.linalg.norm(e) + 1e-9
+            sims = {ref: float(e @ c) for ref, c, nb in cents if nb == narrow}
+            if not sims:
+                continue
+            best = max(sims, key=sims.get)
+            own = sims.get(u.label, -1.0)
+            if best != u.label and sims[best] - own >= p.refine_margin and sims[best] >= 0.5:
+                out[(ui, ti)] = (best, float(np.clip(0.5 + 0.5 * sims[best], 0.5, 0.99)) * 0.9)
+    return out
 
 
 # ---------------------------------------------------------------- main entry
@@ -418,49 +504,74 @@ def diarize(audio: Path, p: Params, embedder: Embedder, log=print):
     chunks = plan_chunks(wav, p)
     log(f"[longdiar] {wav.duration / 3600:.2f} h -> {len(chunks)} chunk(s)")
     timings = dict(sortformer_s=0.0, embed_s=0.0)
-    chunk_info, units = [], []
+    chunk_info, units, final_chunks = [], [], []
+
+    def process(a, b, td):
+        r = sortformer_chunk(wav, a, b, p, Path(td))
+        timings["sortformer_s"] += r["seconds"]
+        lanes = sorted({l for _, _, l in r["turns"]})
+        t0 = time.monotonic()
+        x = wav.read(a, b)
+        cu = []
+        for lane in lanes:
+            mine, clean = clean_spans(r["turns"], lane)
+            u = Unit(-1, f"{int(a)}l{lane}", mine)
+            for pa, pb in pieces_of(clean, p):
+                seg = x[int((pa - a) * SR): int((pb - a) * SR)]
+                u.pieces.append((pa, pb, *embedder.embed_hb(seg)))
+            u.update()
+            for v in channel_split(u, p):
+                cu += maybe_split(v, p)
+        n_split = len(cu)
+        cu = dedupe_lanes(cu, p)
+        timings["embed_s"] += time.monotonic() - t0
+        info = dict(start_s=round(a, 3), end_s=round(b, 3), active_lanes=r["active_lanes"],
+                    capacity=r["capacity"], units=len(cu), split_lanes=n_split - len(lanes),
+                    merged_duplicate_lanes=n_split - len(cu), sortformer_s=r["seconds"])
+        return cu, info
+
     with tempfile.TemporaryDirectory(prefix="longdiar_") as td:
         for k, (a, b) in enumerate(chunks):
-            r = sortformer_chunk(wav, a, b, p, Path(td))
-            timings["sortformer_s"] += r["seconds"]
-            lanes = sorted({l for _, _, l in r["turns"]})
-            t0 = time.monotonic()
-            x = wav.read(a, b)
-            chunk_units = []
-            for lane in lanes:
-                mine, clean = clean_spans(r["turns"], lane)
-                u = Unit(k, f"c{k}l{lane}", mine)
-                for pa, pb in pieces_of(clean, p):
-                    seg = x[int((pa - a) * SR): int((pb - a) * SR)]
-                    u.pieces.append((pa, pb, embedder.embed(seg)))
-                if u.pieces:
-                    u.hb = float(np.median([highband_ratio(x[int((pa - a) * SR): int((pb - a) * SR)])
-                                            for pa, pb, _ in u.pieces[:8]]))
-                u.update()
-                chunk_units += maybe_split(u, p)
-            n_split = len(chunk_units)
-            chunk_units = dedupe_lanes(chunk_units, p)
-            timings["embed_s"] += time.monotonic() - t0
-            units += chunk_units
-            chunk_info.append(dict(i=k, start_s=round(a, 3), end_s=round(b, 3),
-                                   active_lanes=r["active_lanes"], capacity=r["capacity"],
-                                   units=len(chunk_units),
-                                   split_lanes=n_split - len(lanes),
-                                   merged_duplicate_lanes=n_split - len(chunk_units),
-                                   sortformer_s=r["seconds"]))
-            log(f"[longdiar] chunk {k + 1}/{len(chunks)} [{a:.0f}-{b:.0f}s] lanes={len(lanes)} "
-                f"units={len(chunk_units)} sortformer={r['seconds']:.1f}s")
-    del x
+            cu, info = process(a, b, td)
+            saturated = info["split_lanes"] > 0 or len(cu) > 4
+            talk = sum(u.talk for u in cu) or 1.0
+            studio = sum(u.talk for u in cu if not u.narrow(p)) / talk >= 0.5
+            # phone-band embeddings need the longer windows' clean speech, so only studio
+            # chunks are re-run (measured: re-splitting the call made its confusion worse)
+            saturated = saturated and studio
+            if saturated and p.resplit_s and b - a > 2 * p.resplit_s:
+                subs = plan_span(wav, a, b, p.resplit_s, p.resplit_overlap_s, p.snap_s / 3)
+                log(f"[longdiar] chunk {k + 1}/{len(chunks)} [{a:.0f}-{b:.0f}s] saturated "
+                    f"({len(cu)} voices in 4 lanes) -> {len(subs)} sub-chunks of {p.resplit_s:.0f}s")
+                parts = [process(sa, sb, td) + ((sa, sb),) for sa, sb in subs]
+                for pcu, pinfo, span in parts:
+                    pinfo["resplit_of"] = k
+            else:
+                parts = [(cu, info, (a, b))]
+            for pcu, pinfo, span in parts:
+                i = len(final_chunks)
+                for u in pcu:
+                    u.chunk = i
+                    u.lane = f"c{i}l" + u.lane.split("l", 1)[1]
+                pinfo["i"] = i
+                final_chunks.append(span)
+                chunk_info.append(pinfo)
+                units += pcu
+            log(f"[longdiar] chunk {k + 1}/{len(chunks)} [{a:.0f}-{b:.0f}s] "
+                f"lanes={info['active_lanes']} voices={len(cu)} parts={len(parts)}")
+    chunks = final_chunks
 
     # tiny units with no clean speech cannot be embedded; attach them by raw-turn embedding
     for u in units:
         if u.centroid is None:
             segs = [wav.read(a, b) for a, b in u.turns if b - a >= 0.5]
             if segs:
-                e = embedder.embed(np.concatenate(segs))
-                u.centroid, u.conf = e, 0.5
-                u.hb = highband_ratio(np.concatenate(segs))
+                u.centroid, u.hb = embedder.embed_hb(np.concatenate(segs))
+                u.conf = 0.5
+    return link_and_emit(wav, chunks, units, chunk_info, p, timings, t_all)
 
+
+def link_and_emit(wav, chunks, units, chunk_info, p: Params, timings, t_all):
     t0 = time.monotonic()
     links = must_links(units, chunks, p)
     cl = cluster(units, links, p)
@@ -492,13 +603,16 @@ def diarize(audio: Path, p: Params, embedder: Embedder, log=print):
             if c["c"] is not None and u.centroid is not None and u.conf != 0.5:
                 u.conf = float(np.clip(0.5 + 0.5 * float(u.centroid @ c["c"]), 0.5, 0.99))
 
+    override = refine_turns(units, cl, p) if p.refine_margin else {}
     turns = []
-    for u in units:
+    for ui, u in enumerate(units):
         lo, hi = cuts[u.chunk], cuts[u.chunk + 1]
-        for a, b in u.turns:
+        for ti, (a, b) in enumerate(u.turns):
             a, b = max(a, lo), min(b, hi)
             if b - a > 0.02:
-                turns.append([a, b, u.label, u.conf])
+                ref, conf = override.get((ui, ti), (u.label, u.conf))
+                turns.append([a, b, ref, conf])
+    timings["refined_turns"] = len(override)
     turns.sort()
     merged = []
     for t in turns:
